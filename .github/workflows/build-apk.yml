@@ -1,0 +1,24 @@
+name: Build APK
+on: [push, workflow_dispatch]
+permissions:
+  contents: write
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          for z in $(ls *.zip 2>/dev/null); do unzip -q -o "$z"; done
+          echo "DIR=$(dirname $(find . -name gradlew | head -1))" >> $GITHUB_ENV
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - working-directory: ${{ env.DIR }}
+        run: chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+      - run: cp "$(find . -name '*-debug.apk' | head -1)" jubo-ledger.apk
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-${{ github.run_number }}
+          files: jubo-ledger.apk
