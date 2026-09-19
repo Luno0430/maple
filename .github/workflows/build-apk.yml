@@ -9,8 +9,23 @@ jobs:
       - uses: actions/checkout@v4
       - name: zip 풀기
         run: |
-          for z in $(ls *.zip 2>/dev/null); do unzip -q -o "$z"; done
-          echo "DIR=$(dirname $(find . -name settings.gradle.kts | head -1))" >> $GITHUB_ENV
+          echo "── 저장소에 올라온 것들 ──"
+          ls -la
+          for z in *.zip; do
+            [ -e "$z" ] || continue
+            echo "푸는 중: $z"
+            unzip -q -o "$z"
+          done
+
+          FOUND=$(find . -name settings.gradle.kts | head -1)
+          if [ -z "$FOUND" ]; then
+            echo "::error::settings.gradle.kts 를 찾지 못했습니다."
+            echo "::error::JuboLedger.zip 을 저장소 맨 위(루트)에 올렸는지 확인해 주세요."
+            echo "::error::압축을 풀어서 폴더째 올리면 안 되고, zip 파일 그대로 올려야 합니다."
+            exit 1
+          fi
+          echo "프로젝트 위치: $(dirname "$FOUND")"
+          echo "DIR=$(dirname "$FOUND")" >> $GITHUB_ENV
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
