@@ -4,13 +4,16 @@ permissions:
   contents: write
 jobs:
   build:
-    runs-on: ubuntu-latest
+    # ubuntu-latest 는 2026-10-19 부터 26 으로 바뀝니다. 갑자기 깨지지 않게 고정해 둡니다.
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - id: checkout
+        uses: actions/checkout@v4
 
       # ── 프로젝트 찾기 ─────────────────────────────────────
       # zip 으로 올렸든 폴더째 올렸든 settings.gradle.kts 만 찾으면 됩니다.
       - name: 프로젝트 찾기
+        id: find
         run: |
           {
             echo "## 저장소에 올라온 것"
@@ -41,12 +44,31 @@ jobs:
           echo "DIR=$(dirname "$FOUND")" >> $GITHUB_ENV
           echo "프로젝트 위치: $(dirname "$FOUND")"
 
-      - uses: actions/setup-java@v5
+      - id: java
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-      - uses: android-actions/setup-android@v3
-      - uses: gradle/actions/setup-gradle@v4
+      # android-actions/setup-android 는 Node 20 용이라 Node 24 로 강제 실행되면서 깨졌습니다.
+      # GitHub 빌드 서버에는 안드로이드 SDK 가 이미 깔려 있으니 그걸 그대로 씁니다.
+      - name: 안드로이드 SDK 준비
+        id: sdk
+        run: |
+          SDK="${ANDROID_HOME:-$ANDROID_SDK_ROOT}"
+          if [ -z "$SDK" ] || [ ! -d "$SDK" ]; then
+            echo "## ❌ 빌드 서버에 안드로이드 SDK 가 없습니다" >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+          echo "SDK 위치: $SDK"
+          SM="$SDK/cmdline-tools/latest/bin/sdkmanager"
+          [ -x "$SM" ] || SM=$(ls -d "$SDK"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)
+          echo "sdkmanager: $SM"
+          yes | "$SM" --licenses > /dev/null 2>&1 || true
+          "$SM" "platforms;android-35" "build-tools;35.0.0" "platform-tools" > /dev/null
+          echo "ANDROID_HOME=$SDK" >> $GITHUB_ENV
+          echo "ANDROID_SDK_ROOT=$SDK" >> $GITHUB_ENV
+      - id: gradle
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
 
@@ -85,6 +107,22 @@ jobs:
             echo "</details>"
           } >> $GITHUB_STEP_SUMMARY
           exit 1
+
+      - name: 멈춘 단계 적기
+        if: failure() && steps.build.outcome != 'failure'
+        run: |
+          {
+            echo "## ❌ 빌드 전 준비 단계에서 멈췄습니다"
+            echo "| 단계 | 결과 |"
+            echo "|---|---|"
+            echo "| 코드 받기 | ${{ steps.checkout.outcome }} |"
+            echo "| 프로젝트 찾기 | ${{ steps.find.outcome }} |"
+            echo "| 자바 준비 | ${{ steps.java.outcome }} |"
+            echo "| 안드로이드 SDK 준비 | ${{ steps.sdk.outcome }} |"
+            echo "| Gradle 준비 | ${{ steps.gradle.outcome }} |"
+            echo ""
+            echo "failure 인 줄이 멈춘 곳입니다. 이 표를 그대로 보내주세요."
+          } >> $GITHUB_STEP_SUMMARY
 
       - run: cp "$(find . -name '*-debug.apk' | head -1)" jubo-ledger.apk
 
